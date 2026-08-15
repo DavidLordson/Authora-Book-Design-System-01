@@ -10,7 +10,7 @@ const fs = require("fs");
 const {
   Document, Packer, Paragraph, TextRun, AlignmentType, Footer, PageNumber,
   HorizontalPositionAlign, VerticalPositionAlign, FrameAnchorType,
-  HeightRule, DropCapType, HeadingLevel, TableOfContents, PageBreak,
+  HeightRule, DropCapType, HeadingLevel, TableOfContents, PageBreak, FrameWrap,
 } = require("docx");
 
 const { COLORS, FONTS, SIZES, SPACING, PAGE } = require("../src/design-system");
@@ -25,7 +25,7 @@ function makeChapterLabel(text) {
   return new Paragraph({
     alignment: AlignmentType.CENTER,
     pageBreakBefore: true,
-    spacing: { before: 2030, after: SPACING.chapterLabelAfter },
+    spacing: { before: SPACING.chapterOpenerBefore, after: SPACING.chapterLabelAfter },
     children: [run(text, { size: SIZES.chapterLabel, italics: true })],
   });
 }
@@ -76,7 +76,7 @@ function makeDropCapParagraph(text) {
       type: "alignment",
       alignment: { x: HorizontalPositionAlign.LEFT, y: VerticalPositionAlign.TOP },
       anchor: { horizontal: FrameAnchorType.TEXT, vertical: FrameAnchorType.TEXT },
-      width: 800, height: 800, rule: HeightRule.AUTO,
+      width: 800, height: 800, rule: HeightRule.AUTO, wrap: FrameWrap.AROUND,
       dropCap: DropCapType.DROP, lines: SPACING.dropCapLines,
     },
     children: [new TextRun({ text: dropLetter, font: FONTS.serif, color: COLORS.primary })],

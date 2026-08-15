@@ -51,7 +51,7 @@ html, body { margin: 0; padding: 0; background: #808080; }
   text-align: center;
   font-style: italic;
   font-size: ${fpx(SIZES.chapterLabel)};
-  margin: ${px(2030)} 0 ${px(SPACING.chapterLabelAfter)} 0;
+  margin: ${px(SPACING.chapterOpenerBefore)} 0 ${px(SPACING.chapterLabelAfter)} 0;
 }
 .chapter-title {
   text-align: center;
@@ -122,8 +122,6 @@ const html = `<!doctype html>
     <div class="epigraph-citation">1 Corinthians 15:33, KJV</div>
     <p class="body drop-cap">You come under curse or under blessing depending on who you associate with. That single sentence, if you receive it, will reorder your life.</p>
     ${bodyParas.map((t) => `<p class="body">${t}</p>`).join("\n    ")}
-    <div class="block-quote">&ldquo;And Joshua the son of Nun was full of the spirit of wisdom; for Moses had laid his hands upon him: and the children of Israel hearkened unto him, and did as the LORD commanded Moses.&rdquo;</div>
-    <div class="citation">Deuteronomy 34:9, KJV</div>
     <div class="footer">12</div>
   </div>
 </body></html>`;

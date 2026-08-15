@@ -44,6 +44,7 @@ const SPACING = {
   bulletIndent: 400,
   bulletHanging: 260,
   bulletAfter: 80,
+  chapterOpenerBefore: 3720,     // ~2.6 in push-down before "Chapter One" / title block
   chapterLabelAfter: 120,        // 6 pt, "Chapter One" -> title
   chapterTitleAfter: 200,        // 10 pt, title -> subtitle/epigraph
   chapterSubtitleAfter: 240,     // 12 pt
