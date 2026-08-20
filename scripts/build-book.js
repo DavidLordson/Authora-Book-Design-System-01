@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 /**
  * Builds a complete formatted .docx from the classified manuscript JSON
- * (produced by scripts/convert-source-manuscript.py) using the Authora
- * design tokens in src/design-system.js.
+ * (produced by a scripts/convert-source-manuscript*.py importer) using the
+ * Authora design tokens in src/design-system.js.
+ *
+ * Each chapter is emitted as its own Word *section* (type: ODD_PAGE), which
+ * is what actually makes Word start every chapter on an odd (recto) page —
+ * inserting a blank page where needed — rather than just the next page.
+ * All flowing body prose (paragraphs, drop-cap text, block quotes) is fully
+ * justified; centered elements (titles, epigraphs, headings) are untouched.
  *
  * Usage: node scripts/build-book.js <elements.json> [output.docx]
  */
@@ -10,7 +16,7 @@ const fs = require("fs");
 const {
   Document, Packer, Paragraph, TextRun, AlignmentType, Footer, PageNumber,
   HorizontalPositionAlign, VerticalPositionAlign, FrameAnchorType,
-  HeightRule, DropCapType, HeadingLevel, TableOfContents, PageBreak, FrameWrap,
+  HeightRule, DropCapType, HeadingLevel, TableOfContents, FrameWrap, SectionType,
 } = require("docx");
 
 const { COLORS, FONTS, SIZES, SPACING, PAGE } = require("../src/design-system");
@@ -24,7 +30,6 @@ function run(text, extra = {}) {
 function makeChapterLabel(text) {
   return new Paragraph({
     alignment: AlignmentType.CENTER,
-    pageBreakBefore: true,
     spacing: { before: SPACING.chapterOpenerBefore, after: SPACING.chapterLabelAfter },
     children: [run(text, { size: SIZES.chapterLabel, italics: true })],
   });
@@ -65,7 +70,11 @@ function makeTagline(text) {
 }
 
 function makeBodyParagraph(text) {
-  return new Paragraph({ spacing: { after: SPACING.bodyParagraphAfter }, children: [run(text)] });
+  return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: SPACING.bodyParagraphAfter },
+    children: [run(text)],
+  });
 }
 
 function makeDropCapParagraph(text) {
@@ -81,24 +90,42 @@ function makeDropCapParagraph(text) {
     },
     children: [new TextRun({ text: dropLetter, font: FONTS.serif, color: COLORS.primary })],
   });
-  const restPara = new Paragraph({ spacing: { after: SPACING.bodyParagraphAfter }, children: [run(rest)] });
+  const restPara = new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: SPACING.bodyParagraphAfter },
+    children: [run(rest)],
+  });
   return [dropCapPara, restPara];
 }
 
-function makeBlockQuote(text, citation) {
-  const paras = [
-    new Paragraph({
+// Accepts either the legacy { text, citation } shape or { lines: string[],
+// citation } for multi-line quotes (e.g. a four-line prayer with no
+// citation at all).
+function makeBlockQuote(item) {
+  const lines = item.lines || [item.text];
+  const hasCitation = !!item.citation;
+  const paras = lines.map((line, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === lines.length - 1;
+    let quoted = line;
+    if (isFirst && !/^[“"]/.test(quoted)) quoted = "“" + quoted;
+    if (isLast && !/[”"]$/.test(quoted)) quoted = quoted + "”";
+    return new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
       indent: { left: 360, right: 360 },
-      spacing: { before: SPACING.blockQuoteBefore, after: 60 },
-      children: [run(text, { size: SIZES.epigraph, italics: true })],
-    }),
-  ];
-  if (citation) {
+      spacing: {
+        before: isFirst ? SPACING.blockQuoteBefore : 0,
+        after: isLast ? (hasCitation ? 60 : SPACING.blockQuoteAfter) : 0,
+      },
+      children: [run(quoted, { size: SIZES.epigraph, italics: true })],
+    });
+  });
+  if (hasCitation) {
     paras.push(
       new Paragraph({
         indent: { left: 360 },
         spacing: { after: SPACING.blockQuoteAfter },
-        children: [run(citation, { size: SIZES.epigraphCitation, italics: true })],
+        children: [run(item.citation, { size: SIZES.epigraphCitation, italics: true })],
       })
     );
   }
@@ -107,7 +134,8 @@ function makeBlockQuote(text, citation) {
 
 // Faux small-caps section heading (matches the reference's manual Word
 // trick: enlarged first letter of each word, smaller true caps for the
-// rest), used for "TAKE THESE STEPS" / "A PRAYER" style dividers.
+// rest) — used both for "TAKE THESE STEPS" / "A PRAYER" style dividers and
+// for ordinary in-chapter subheadings.
 function makeSectionHeading(text) {
   const words = text.toUpperCase().split(" ");
   const runs = [];
@@ -121,6 +149,7 @@ function makeSectionHeading(text) {
 
 function makeNumberedItem(n, text) {
   return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
     indent: { left: SPACING.bulletIndent, hanging: SPACING.bulletHanging },
     spacing: { after: SPACING.bulletAfter },
     children: [run(`${n}.\t`), run(text)],
@@ -128,7 +157,11 @@ function makeNumberedItem(n, text) {
 }
 
 function makePrayerLine(text) {
-  return new Paragraph({ spacing: { after: SPACING.bodyParagraphAfter }, children: [run(text, { italics: true })] });
+  return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: SPACING.bodyParagraphAfter },
+    children: [run(text, { italics: true })],
+  });
 }
 
 function makeSectionBreak() {
@@ -153,21 +186,25 @@ function makeFooter() {
 // ─── Front / back matter ───
 
 function buildTitlePage(el) {
-  return [
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 3200, after: 400 }, children: [run(el.series, { italics: true })] }),
+  const paras = [];
+  if (el.series) {
+    paras.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 3200, after: 400 }, children: [run(el.series, { italics: true })] }));
+  }
+  paras.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 300 },
+      spacing: { before: el.series ? 0 : 3200, after: 300 },
       children: [new TextRun({ text: el.title, font: FONTS.script, size: SIZES.chapterTitle + 12, color: COLORS.primary })],
-    }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 1600 }, children: [run(el.tagline, { italics: true })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [run(el.author)] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [run(el.publisher)] }),
-  ];
+    })
+  );
+  paras.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 1600 }, children: [run(el.tagline, { italics: true })] }));
+  paras.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [run(el.author)] }));
+  paras.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [run(el.publisher)] }));
+  return paras;
 }
 
 function buildCopyrightPage(el) {
-  const paras = [new Paragraph({ pageBreakBefore: true, spacing: { before: 2000, after: 200 }, children: [run(el.lines[0], { bold: true })] })];
+  const paras = [new Paragraph({ spacing: { before: 2000, after: 200 }, children: [run(el.lines[0], { bold: true })] })];
   for (const line of el.lines.slice(1)) {
     paras.push(new Paragraph({ spacing: { after: 160 }, children: [run(line, { size: SIZES.footnote })] }));
   }
@@ -176,7 +213,7 @@ function buildCopyrightPage(el) {
 
 function buildTOC() {
   return [
-    new Paragraph({ pageBreakBefore: true, spacing: { before: 2000, after: 300 }, alignment: AlignmentType.CENTER, children: [run("Contents", { size: SIZES.chapterSubtitle, bold: true })] }),
+    new Paragraph({ spacing: { before: 2000, after: 300 }, alignment: AlignmentType.CENTER, children: [run("Contents", { size: SIZES.chapterSubtitle, bold: true })] }),
     new TableOfContents("Contents", { hyperlink: true, headingStyleRange: "1-1" }),
   ];
 }
@@ -186,12 +223,14 @@ function buildTOC() {
 function buildChapter(chapter) {
   const paras = [makeChapterLabel(chapter.label), makeChapterTitle(chapter.title)];
 
-  if (chapter.citation) {
-    paras.push(makeEpigraph(chapter.epigraph));
-    paras.push(makeEpigraphCitation(chapter.citation));
-  } else {
-    paras.push(makeEpigraph(chapter.epigraph));
-    if (chapter.tagline) paras.push(makeTagline(chapter.tagline));
+  if (chapter.epigraph) {
+    if (chapter.citation) {
+      paras.push(makeEpigraph(chapter.epigraph));
+      paras.push(makeEpigraphCitation(chapter.citation));
+    } else {
+      paras.push(makeEpigraph(chapter.epigraph));
+      if (chapter.tagline) paras.push(makeTagline(chapter.tagline));
+    }
   }
 
   let dropCapPending = true;
@@ -206,7 +245,10 @@ function buildChapter(chapter) {
         }
         break;
       case "block-quote":
-        paras.push(...makeBlockQuote(item.text, item.citation));
+        paras.push(...makeBlockQuote(item));
+        break;
+      case "subheading":
+        paras.push(makeSectionHeading(item.text));
         break;
       case "section-break":
         paras.push(makeSectionBreak());
@@ -232,7 +274,6 @@ function buildBackMatter(el) {
     if (isHeading) {
       paras.push(
         new Paragraph({
-          pageBreakBefore: item.text === "About the Author",
           alignment: AlignmentType.CENTER,
           spacing: { before: item.text === "About the Author" ? 2000 : 600, after: 200 },
           children: [run(item.text, { bold: true, size: SIZES.chapterSubtitle })],
@@ -249,15 +290,6 @@ function buildBackMatter(el) {
 
 async function build(inputPath, outputPath) {
   const elements = JSON.parse(fs.readFileSync(inputPath, "utf-8"));
-  let children = [];
-
-  for (const el of elements) {
-    if (el.type === "title-page") children.push(...buildTitlePage(el));
-    else if (el.type === "copyright-page") children.push(...buildCopyrightPage(el));
-    else if (el.type === "toc") children.push(...buildTOC());
-    else if (el.type === "chapter") children.push(...buildChapter(el));
-    else if (el.type === "back-matter") children.push(...buildBackMatter(el));
-  }
 
   const basePageProps = {
     size: { width: PAGE.width, height: PAGE.height },
@@ -267,6 +299,38 @@ async function build(inputPath, outputPath) {
       header: PAGE.headerDistance, footer: PAGE.footerDistance,
     },
   };
+
+  // Front matter (title/copyright/TOC) all share one ordinary section; each
+  // chapter then gets its own section typed ODD_PAGE, which is what makes
+  // Word insert a blank page when needed so the chapter starts recto.
+  // Back matter closes out in a final ordinary next-page section.
+  const sections = [];
+  let frontMatter = [];
+
+  for (const el of elements) {
+    if (el.type === "title-page") frontMatter.push(...buildTitlePage(el));
+    else if (el.type === "copyright-page") frontMatter.push(...buildCopyrightPage(el));
+    else if (el.type === "toc") frontMatter.push(...buildTOC());
+    else if (el.type === "chapter") {
+      sections.push({
+        properties: { page: basePageProps, type: SectionType.ODD_PAGE },
+        footers: { default: makeFooter() },
+        children: buildChapter(el),
+      });
+    } else if (el.type === "back-matter" && el.items.length) {
+      sections.push({
+        properties: { page: basePageProps, type: SectionType.NEXT_PAGE },
+        footers: { default: makeFooter() },
+        children: buildBackMatter(el),
+      });
+    }
+  }
+
+  sections.unshift({
+    properties: { page: basePageProps },
+    footers: { default: makeFooter() },
+    children: frontMatter,
+  });
 
   const doc = new Document({
     creator: "Authora Book Design System",
@@ -282,7 +346,7 @@ async function build(inputPath, outputPath) {
         },
       ],
     },
-    sections: [{ properties: { page: basePageProps }, footers: { default: makeFooter() }, children }],
+    sections,
   });
 
   const buffer = await Packer.toBuffer(doc);
