@@ -14,7 +14,7 @@
  */
 const fs = require("fs");
 const {
-  Document, Packer, Paragraph, TextRun, AlignmentType, Footer, PageNumber,
+  Document, Packer, Paragraph, TextRun, AlignmentType,
   HorizontalPositionAlign, VerticalPositionAlign, FrameAnchorType,
   HeightRule, DropCapType, HeadingLevel, TableOfContents, FrameWrap, SectionType,
 } = require("docx");
@@ -172,17 +172,6 @@ function makeSectionBreak() {
   });
 }
 
-function makeFooter() {
-  return new Footer({
-    children: [
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        children: [new TextRun({ font: FONTS.serif, size: SIZES.footer, color: COLORS.muted, children: [PageNumber.CURRENT] })],
-      }),
-    ],
-  });
-}
-
 // ─── Front / back matter ───
 
 function buildTitlePage(el) {
@@ -314,13 +303,11 @@ async function build(inputPath, outputPath) {
     else if (el.type === "chapter") {
       sections.push({
         properties: { page: basePageProps, type: SectionType.ODD_PAGE },
-        footers: { default: makeFooter() },
         children: buildChapter(el),
       });
     } else if (el.type === "back-matter" && el.items.length) {
       sections.push({
         properties: { page: basePageProps, type: SectionType.NEXT_PAGE },
-        footers: { default: makeFooter() },
         children: buildBackMatter(el),
       });
     }
@@ -328,7 +315,6 @@ async function build(inputPath, outputPath) {
 
   sections.unshift({
     properties: { page: basePageProps },
-    footers: { default: makeFooter() },
     children: frontMatter,
   });
 
